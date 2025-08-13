@@ -43,7 +43,7 @@ export default defineConfig(({ mode }) => ({
           }
         ]
       },
-      includeAssets: ['favicon.ico', 'icon-192x192.png', 'icon-512x512.png'],
+      includeAssets: ['favicon.ico', '/lovable-uploads/351e021a-74eb-4135-9635-7da652f7e9bd.png'],
       manifest: {
         name: 'TONNEX SCAN',
         short_name: 'TONNEX SCAN',
@@ -55,12 +55,12 @@ export default defineConfig(({ mode }) => ({
         start_url: '/',
         icons: [
           {
-            src: 'icon-192x192.png',
+            src: '/lovable-uploads/351e021a-74eb-4135-9635-7da652f7e9bd.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'icon-512x512.png',
+            src: '/lovable-uploads/351e021a-74eb-4135-9635-7da652f7e9bd.png',
             sizes: '512x512',
             type: 'image/png'
           }
