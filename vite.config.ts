@@ -57,12 +57,14 @@ export default defineConfig(({ mode }) => ({
           {
             src: '/lovable-uploads/351e021a-74eb-4135-9635-7da652f7e9bd.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
             src: '/lovable-uploads/351e021a-74eb-4135-9635-7da652f7e9bd.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       }
