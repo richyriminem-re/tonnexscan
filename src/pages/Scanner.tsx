@@ -472,15 +472,32 @@ const performExport = useCallback(() => {
       <div className="relative bg-muted rounded-xl h-[44vh] md:h-64 mb-4 md:mb-6 overflow-hidden">
         <BarcodeScanner active={!showDelay && isScanning} onResult={handleDetected} />
 
+        {/* QR Scanner Animation Overlay */}
+        {!showDelay && isScanning && (
+          <div className="scanner-overlay">
+            {/* Moving scan line */}
+            <div className="scanner-line"></div>
+            
+            {/* Corner brackets */}
+            <div className="scanner-corners">
+              <div className="scanner-corner top-left"></div>
+              <div className="scanner-corner top-right"></div>
+              <div className="scanner-corner bottom-left"></div>
+              <div className="scanner-corner bottom-right"></div>
+            </div>
+            
+            {/* Target area */}
+            <div className="scanner-target"></div>
+            
+            {/* Grid overlay */}
+            <div className="scanner-grid"></div>
+          </div>
+        )}
+
         {/* Instructional hint */}
         <div className="absolute inset-x-0 bottom-4 text-center text-muted-foreground pointer-events-none">
           <p className="text-sm">Point camera at barcode to scan</p>
         </div>
-
-        {/* Scanner line animation */}
-        {!showDelay && isScanning && (
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary scanner-scanning"></div>
-        )}
       </div>
 
       {/* Progress Bar */}
