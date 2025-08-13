@@ -542,6 +542,89 @@
   .export-scroll:hover {
     animation-play-state: paused;
   }
+  /* QR Scanner Animation Overlay */
+  .scanner-overlay {
+    @apply absolute inset-0 pointer-events-none;
+  }
+
+  .scanner-line {
+    @apply absolute left-1/2 w-4/5 h-0.5 bg-primary shadow-lg transform -translate-x-1/2;
+    animation: scannerSweep 2s ease-in-out infinite;
+    box-shadow: 0 0 10px hsl(var(--primary)), 0 0 20px hsl(var(--primary) / 0.5);
+  }
+
+  @keyframes scannerSweep {
+    0%, 100% {
+      top: 20%;
+      opacity: 0;
+    }
+    50% {
+      top: 80%;
+      opacity: 1;
+    }
+  }
+
+  .scanner-corners {
+    @apply absolute inset-0;
+  }
+
+  .scanner-corner {
+    @apply absolute w-8 h-8 border-primary;
+    border-width: 3px;
+    animation: cornerPulse 2s ease-in-out infinite;
+  }
+
+  .scanner-corner.top-left {
+    @apply top-4 left-4 border-r-0 border-b-0;
+  }
+
+  .scanner-corner.top-right {
+    @apply top-4 right-4 border-l-0 border-b-0;
+  }
+
+  .scanner-corner.bottom-left {
+    @apply bottom-4 left-4 border-r-0 border-t-0;
+  }
+
+  .scanner-corner.bottom-right {
+    @apply bottom-4 right-4 border-l-0 border-t-0;
+  }
+
+  @keyframes cornerPulse {
+    0%, 100% {
+      opacity: 0.6;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.1);
+    }
+  }
+
+  .scanner-target {
+    @apply absolute top-1/2 left-1/2 w-48 h-48 border-2 border-primary/30 rounded-lg transform -translate-x-1/2 -translate-y-1/2;
+    animation: targetBreathe 3s ease-in-out infinite;
+  }
+
+  @keyframes targetBreathe {
+    0%, 100% {
+      transform: translate(-50%, -50%) scale(1);
+      opacity: 0.3;
+    }
+    50% {
+      transform: translate(-50%, -50%) scale(1.05);
+      opacity: 0.6;
+    }
+  }
+
+  .scanner-grid {
+    @apply absolute inset-0 opacity-20;
+    background-image: 
+      linear-gradient(to right, hsl(var(--primary) / 0.1) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--primary) / 0.1) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
   /* Gradient Text */
   .gradient-text {
     background: var(--gradient-hero);
