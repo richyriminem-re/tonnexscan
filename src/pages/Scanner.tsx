@@ -630,6 +630,13 @@ const performExport = useCallback(() => {
               </div>
             )}
           </Card>
+
+          {/* Credits Section */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-muted-foreground/70">
+              THIS APP WAS DESIGNED AND VISIONED BY RICHY OGIEMUDIA
+            </p>
+          </div>
         </div>
 
         {/* Clear Confirmation Dialog */}
