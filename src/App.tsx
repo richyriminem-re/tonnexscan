@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
-import { SplashScreen } from "@/components/SplashScreen";
 import Home from "./pages/Home";
 import Scanner from "./pages/Scanner";
 import SavedData from "./pages/SavedData";
@@ -15,15 +14,6 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 const App = () => {
-  const [showSplash, setShowSplash] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowSplash(false);
-    }, 2500);
-
-    return () => clearTimeout(timer);
-  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -36,7 +26,6 @@ const App = () => {
         <TooltipProvider>
           <Sonner />
           <PWAInstallPrompt />
-          <SplashScreen isVisible={showSplash} />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <Routes>
               <Route path="/" element={<Home />} />
