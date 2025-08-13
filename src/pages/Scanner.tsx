@@ -75,7 +75,7 @@ const Scanner = () => {
   const [undoConfirmOpen, setUndoConfirmOpen] = useState(false);
   const [fileName, setFileName] = useState("");
   const [fileType, setFileType] = useState<"csv" | "xlsx">("xlsx");
-  const [exportType, setExportType] = useState<"both" | "serial" | "iuc">("both");
+  const [exportType, setExportType] = useState<"both" | "serial" | "iuc">("serial");
   const [lastBatchCount, setLastBatchCount] = useState(0);
   const [lastBatchId, setLastBatchId] = useState<number | null>(null);
 
@@ -789,6 +789,13 @@ const performExport = useCallback(() => {
                   <div>• {exportType === "both" ? "Serial & IUC" : exportType === "serial" ? "Serial only" : "IUC only"}</div>
                 </div>
               </div>
+            </div>
+            
+            {/* Credits Section */}
+            <div className="mt-4 text-center">
+              <p className="text-xs text-muted-foreground/70">
+                THIS APP WAS DESIGNED AND VISIONED BY RICHY OGIEMUDIA
+              </p>
             </div>
             
             <DialogFooter className="gap-2">
