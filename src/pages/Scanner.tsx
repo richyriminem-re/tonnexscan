@@ -89,29 +89,15 @@ const Scanner = () => {
   const SERIAL_REGEX = /^[A-Z]\d{9}X\d$/;
   const IUC_REGEX = /^\d{10}$/;
 
-  // Load existing scans from device-specific storage
+  // Clear scan results when page mounts
   useEffect(() => {
-    const loadScans = async () => {
-      try {
-        const deviceId = await DeviceIdService.getDeviceId();
-        console.log('Device ID initialized:', deviceId);
-        
-        const savedScans = await LocalScanStorage.getAllScans();
-        setScans(savedScans.map((s) => ({ 
-          id: s.id,
-          serial: s.content.split(',')[0] || '',
-          iuc: s.content.split(',')[1] || '',
-          timestamp: new Date(s.timestamp),
-          deviceId: s.deviceId,
-          notes: s.notes,
-          batchId: undefined // Legacy field
-        })));
-      } catch (error) {
-        console.error('Error loading scans:', error);
-      }
-    };
-    
-    loadScans();
+    // Clear all scan results state when the component mounts
+    setScans([]);
+    setLastScanId(null);
+    setLastAddedId(null);
+    setLastBatchCount(0);
+    setLastBatchId(null);
+    setRawText("");
   }, []);
 
 // Handle camera results (capture for review, don't auto-add)
