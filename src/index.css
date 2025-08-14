@@ -181,6 +181,21 @@
     font-variation-settings: 'opsz' 32;
     scroll-behavior: smooth;
     margin: 0;
+    /* Android navigation bar transparency for PWA */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  /* PWA standalone mode with transparent navigation */
+  @media (display-mode: standalone) {
+    body {
+      padding-bottom: 0;
+    }
+    
+    #root {
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
   }
   
   .scroll-section {
