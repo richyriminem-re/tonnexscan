@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "xyz.appmaker.grcngf",
+      "sha256_cert_fingerprints": ["B9:37:C4:1F:DF:83:83:A1:8A:76:3A:59:45:9F:7F:94:A1:9B:0A:72:61:7C:38:0B:BC:4E:46:D1:DB:0F:A0:AF"]
+    }
+  }
+]
