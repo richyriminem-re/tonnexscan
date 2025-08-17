@@ -5,12 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Label } from "@/components/ui/label";
-import { ArrowLeft, Download, Calendar, Hash, FileSpreadsheet, Search, SortAsc, SortDesc, FileType, Trash2, Database, Smartphone, Shield, Share, FileText } from "lucide-react";
-import { Share as CapShare } from '@capacitor/share';
-import * as XLSX from "xlsx";
+import { ArrowLeft, Download, Calendar, Hash, FileSpreadsheet, Search, SortAsc, SortDesc, FileType, Trash2, Database, Smartphone, Shield } from "lucide-react";
 import { useDeviceScans } from "@/hooks/useDeviceScans";
 import { Badge } from "@/components/ui/badge";
 
@@ -32,11 +27,6 @@ const SavedData = () => {
   const [typeFilter, setTypeFilter] = useState<"all" | "csv" | "xlsx">("all");
   const [sortBy, setSortBy] = useState<"date" | "name" | "count" | "type">("date");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [selectedExport, setSelectedExport] = useState<SavedExport | null>(null);
-  const [exportType, setExportType] = useState<"both" | "serial" | "iuc">("both");
-  const [exportFormat, setExportFormat] = useState<"csv" | "xlsx">("xlsx");
-  const { scans } = useDeviceScans();
 
   // SEO
   useEffect(() => {
@@ -108,149 +98,17 @@ const SavedData = () => {
     }).format(date);
   };
 
-  const shareFile = async (blob: Blob, fileName: string) => {
-    try {
-      // Convert blob to base64 for Capacitor Share
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string;
-          // Remove data URL prefix to get pure base64
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-
-      const base64Data = await base64Promise;
-      
-      // Use Capacitor Share plugin for mobile sharing
-      await CapShare.share({
-        title: "Tonnex Scan Export",
-        text: `Sharing scan data: ${fileName}`,
-        url: `data:${blob.type};base64,${base64Data}`,
-        dialogTitle: "Share your scan data"
-      });
-    } catch (error) {
-      console.error('Sharing failed:', error);
-      // Fallback to regular download
-      downloadFile(blob, fileName);
-    }
-  };
-
-  const downloadFile = (blob: Blob, fileName: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const generateExportData = (exportType: string, format: string, sourceData?: string) => {
-    // If sourceData is provided, use it; otherwise use all scans
-    const dataToUse = sourceData ? [sourceData] : scans.map(s => s.content);
-    
-    if (exportType === "serial") {
-      return dataToUse.map((content) => format === "csv" ? content.split(',')[0] : { Serial: content.split(',')[0] });
-    } else if (exportType === "iuc") {
-      return dataToUse.map((content) => format === "csv" ? content.split(',')[1] : { IUC: content.split(',')[1] });
-    } else {
-      return dataToUse.map((content) => {
-        const [serial, iuc] = content.split(',');
-        return format === "csv" ? `${serial},${iuc}` : { Serial: serial, IUC: iuc };
-      });
-    }
-  };
-
-  const performReExport = async () => {
-    if (!selectedExport) return;
-
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10);
-    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-');
-    const baseName = selectedExport.name.replace(/\.(csv|xlsx)$/, '');
-    const fileName = `${baseName}_${dateStr}_${timeStr}.${exportFormat}`;
-
-    let blob: Blob;
-    
-    // Get the original data from the selected export
-    let sourceData: string;
-    if (selectedExport.type === "csv") {
-      // For CSV, extract the first data row (skip header)
-      const lines = selectedExport.data.split('\n');
-      sourceData = lines[1] || '';
-    } else {
-      // For XLSX, we need to reconstruct the data from the saved export
-      // For now, use current scans as fallback - in a real app you'd store raw data
-      sourceData = scans.length > 0 ? scans[0].content : '';
-    }
-
-    if (exportFormat === "csv") {
-      let header: string;
-      let rows: string[];
-      
-      const data = generateExportData(exportType, "csv", sourceData) as string[];
-      
-      if (exportType === "serial") {
-        header = "Serial";
-        rows = data;
-      } else if (exportType === "iuc") {
-        header = "IUC";
-        rows = data;
-      } else {
-        header = "Serial,IUC";
-        rows = data;
-      }
-      
-      const csv = [header, ...rows].join("\n");
-      blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    } else {
-      const data = generateExportData(exportType, "xlsx", sourceData) as any[];
-      
-      const ws = XLSX.utils.json_to_sheet(data);
-      const colCount = Object.keys(data[0] || {}).length;
-      ws['!cols'] = Array(colCount).fill({ wch: 13 });
-      
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Scans");
-      
-      const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-      blob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    }
-
-    // Trigger share dialog
-    await shareFile(blob, fileName);
-    setExportDialogOpen(false);
-  };
-
-  const shareExport = async (item: SavedExport) => {
-    try {
-      let blob: Blob;
-      if (item.type === "csv") {
-        blob = new Blob([item.data], { type: "text/csv;charset=utf-8;" });
-      } else {
-        // base64 to Blob
-        const byteChars = atob(item.data);
-        const byteNumbers = new Array(byteChars.length);
-        for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-        const byteArray = new Uint8Array(byteNumbers);
-        blob = new Blob([byteArray], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      }
-      
-      await shareFile(blob, item.name);
-    } catch (error) {
-      console.error('Sharing failed:', error);
-    }
-  };
-
   const downloadExport = (item: SavedExport) => {
     if (item.type === "csv") {
       const blob = new Blob([item.data], { type: "text/csv;charset=utf-8;" });
-      downloadFile(blob, item.name);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = item.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } else {
       // base64 to Blob
       const byteChars = atob(item.data);
@@ -258,15 +116,15 @@ const SavedData = () => {
       for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      downloadFile(blob, item.name);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = item.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
-  };
-
-  const openExportDialog = (item: SavedExport) => {
-    setSelectedExport(item);
-    setExportType(item.exportType);
-    setExportFormat(item.type);
-    setExportDialogOpen(true);
   };
 
   const removeExport = (id: string) => {
@@ -372,30 +230,22 @@ const SavedData = () => {
                           {item.type.toUpperCase()} • {item.exportType}
                         </Badge>
                       </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4" />
-                            <span>{formatDate(item.createdAt)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Hash className="h-4 w-4" />
-                            <span>{item.rowCount} rows</span>
-                          </div>
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4" />
+                          <span>{formatDate(item.createdAt)}</span>
                         </div>
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          Contains: {item.exportType === "both" ? "Serial & IUC Numbers" : 
-                                   item.exportType === "serial" ? "Serial Numbers Only" : 
-                                   "IUC Numbers Only"}
+                        <div className="flex items-center gap-2">
+                          <Hash className="h-4 w-4" />
+                          <span>{item.rowCount} rows</span>
                         </div>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openExportDialog(item)}>
-                        <Share className="mr-2 h-4 w-4" />
-                        Export
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => shareExport(item)} aria-label="Share this export">
-                        <Share className="h-4 w-4" />
+                      <Button variant="outline" size="sm" onClick={() => downloadExport(item)}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Download
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -425,88 +275,6 @@ const SavedData = () => {
             </div>
           </div>
         )}
-
-        {/* Re-Export Dialog */}
-        <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-lg">
-                <Share className="h-4 w-4 text-primary" />
-                Re-Export Data
-              </DialogTitle>
-              <DialogDescription className="text-sm">
-                Choose what to export and share from your saved scan data.
-              </DialogDescription>
-            </DialogHeader>
-            
-            <div className="space-y-3">
-              {/* Export Type Section */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium flex items-center gap-1">
-                  <FileSpreadsheet className="h-3 w-3 text-primary" />
-                  What to export
-                </Label>
-                <RadioGroup value={exportType} onValueChange={(value: "both" | "serial" | "iuc") => setExportType(value)} className="space-y-1">
-                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
-                    <RadioGroupItem value="both" id="both-re" className="h-3 w-3" />
-                    <Label htmlFor="both-re" className="flex-1 cursor-pointer text-sm">
-                      Serial & IUC Numbers
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
-                    <RadioGroupItem value="serial" id="serial-re" className="h-3 w-3" />
-                    <Label htmlFor="serial-re" className="flex-1 cursor-pointer text-sm">
-                      Serial Numbers Only
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
-                    <RadioGroupItem value="iuc" id="iuc-re" className="h-3 w-3" />
-                    <Label htmlFor="iuc-re" className="flex-1 cursor-pointer text-sm">
-                      IUC Numbers Only
-                    </Label>
-                  </div>
-                </RadioGroup>
-              </div>
-
-              {/* File Format Section */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium flex items-center gap-1">
-                  <FileText className="h-3 w-3 text-primary" />
-                  File format
-                </Label>
-                <RadioGroup value={exportFormat} onValueChange={(value: "csv" | "xlsx") => setExportFormat(value)} className="grid grid-cols-2 gap-2">
-                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
-                    <RadioGroupItem value="xlsx" id="xlsx-re" className="h-3 w-3" />
-                    <Label htmlFor="xlsx-re" className="cursor-pointer text-sm">Excel</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
-                    <RadioGroupItem value="csv" id="csv-re" className="h-3 w-3" />
-                    <Label htmlFor="csv-re" className="cursor-pointer text-sm">CSV</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-
-              {/* Summary */}
-              <div className="bg-muted/50 rounded p-2">
-                <div className="text-xs text-muted-foreground space-y-0.5">
-                  <div>• {scans.length} available scans • {exportFormat.toUpperCase()} format</div>
-                  <div>• {exportType === "both" ? "Serial & IUC" : exportType === "serial" ? "Serial only" : "IUC only"}</div>
-                  <div>• File will be shared after export</div>
-                </div>
-              </div>
-            </div>
-            
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setExportDialogOpen(false)} className="flex-1 h-8">
-                Cancel
-              </Button>
-              <Button onClick={performReExport} className="flex-1 h-8" disabled={scans.length === 0}>
-                <Share className="mr-1 h-3 w-3" /> 
-                Export & Share
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </main>
     </div>
   );
