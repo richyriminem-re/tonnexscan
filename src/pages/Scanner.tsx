@@ -31,6 +31,7 @@ import * as XLSX from "xlsx";
 import { BarcodeScanner } from "@/components/scanner/BarcodeScanner";
 import { LocalScanStorage, ScanRecord } from "@/services/localScanStorage";
 import { DeviceIdService } from "@/services/deviceIdService";
+import { Share as CapShare } from '@capacitor/share';
 
 interface ScanResult {
   id: string;
@@ -330,14 +331,55 @@ const exportData = useCallback(() => {
   setExportOpen(true);
 }, [scans, notify]);
 
-const performExport = useCallback(() => {
+const shareFile = useCallback(async (blob: Blob, fileName: string) => {
+  try {
+    if (navigator.share && navigator.canShare) {
+      const file = new File([blob], fileName, { type: blob.type });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "Tonnex Scan Export",
+          text: `Sharing scan data: ${fileName}`
+        });
+        return;
+      }
+    }
+    
+    // Fallback: try Capacitor Share plugin
+    await CapShare.share({
+      title: "Tonnex Scan Export",
+      text: `Sharing scan data: ${fileName}`,
+      url: URL.createObjectURL(blob)
+    });
+  } catch (error) {
+    console.error('Sharing failed:', error);
+    // Fallback to regular download
+    downloadFile(blob, fileName);
+  }
+}, []);
+
+const downloadFile = useCallback((blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}, []);
+
+const performExport = useCallback(async () => {
   const safeName = (fileName || `Tonnex_Scan_${Date.now()}`).replace(/[^a-zA-Z0-9_\-]/g, "_");
   const createdAt = new Date().toISOString();
   const id = Date.now().toString();
+  let blob: Blob;
+  let wb: any;
+  let rows: string[] = [];
+  let data: any[] = [];
 
   if (fileType === "csv") {
     let header: string;
-    let rows: string[];
     
     if (exportType === "serial") {
       header = "Serial";
@@ -351,15 +393,7 @@ const performExport = useCallback(() => {
     }
     
     const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${safeName}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
 
     // Save export snapshot to localStorage for Saved Scans page
     const savedEntry: SavedExport = {
@@ -378,8 +412,6 @@ const performExport = useCallback(() => {
       window.dispatchEvent(new Event("tonnex:exports-updated"));
     } catch {}
   } else {
-    let data: any[];
-    
     if (exportType === "serial") {
       data = scans.map((s) => ({ Serial: s.serial }));
     } else if (exportType === "iuc") {
@@ -397,11 +429,12 @@ const performExport = useCallback(() => {
     const colCount = Object.keys(data[0] || {}).length;
     ws['!cols'] = Array(colCount).fill({ wch: 13 });
     
-    const wb = XLSX.utils.book_new();
+    wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Scans");
 
-    // Download file
-    XLSX.writeFile(wb, `${safeName}.xlsx`);
+    // Create blob for sharing
+    const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    blob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 
     // Also save base64 snapshot to localStorage
     try {
@@ -422,13 +455,16 @@ const performExport = useCallback(() => {
     } catch {}
   }
 
-  notify({ title: "Exported", description: `${scans.length} rows saved as ${safeName}.${fileType}` });
+  // Share the file
+  await shareFile(blob, `${safeName}.${fileType}`);
+
+  notify({ title: "Exported & Shared", description: `${scans.length} rows exported successfully` });
   setExportOpen(false);
   
   // Clear scan results after successful export
   setScans([]);
   setLastAddedId(null);
-}, [fileName, fileType, exportType, scans, notify]);
+}, [fileName, fileType, exportType, scans, notify, shareFile, downloadFile]);
 
   return (
     <div className="min-h-screen bg-background fade-in">
