@@ -150,15 +150,17 @@ const SavedData = () => {
     URL.revokeObjectURL(url);
   };
 
-  const generateExportData = (exportType: string, format: string) => {
+  const generateExportData = (exportType: string, format: string, sourceData?: string) => {
+    // If sourceData is provided, use it; otherwise use all scans
+    const dataToUse = sourceData ? [sourceData] : scans.map(s => s.content);
+    
     if (exportType === "serial") {
-      return scans.map((s) => format === "csv" ? s.content.split(',')[0] : { Serial: s.content.split(',')[0] });
+      return dataToUse.map((content) => format === "csv" ? content.split(',')[0] : { Serial: content.split(',')[0] });
     } else if (exportType === "iuc") {
-      return scans.map((s) => format === "csv" ? s.content.split(',')[1] : { IUC: s.content.split(',')[1] });
+      return dataToUse.map((content) => format === "csv" ? content.split(',')[1] : { IUC: content.split(',')[1] });
     } else {
-      const [serial, iuc] = scans.length > 0 ? scans[0].content.split(',') : ['', ''];
-      return scans.map((s) => {
-        const [serial, iuc] = s.content.split(',');
+      return dataToUse.map((content) => {
+        const [serial, iuc] = content.split(',');
         return format === "csv" ? `${serial},${iuc}` : { Serial: serial, IUC: iuc };
       });
     }
@@ -174,12 +176,24 @@ const SavedData = () => {
     const fileName = `${baseName}_${dateStr}_${timeStr}.${exportFormat}`;
 
     let blob: Blob;
+    
+    // Get the original data from the selected export
+    let sourceData: string;
+    if (selectedExport.type === "csv") {
+      // For CSV, extract the first data row (skip header)
+      const lines = selectedExport.data.split('\n');
+      sourceData = lines[1] || '';
+    } else {
+      // For XLSX, we need to reconstruct the data from the saved export
+      // For now, use current scans as fallback - in a real app you'd store raw data
+      sourceData = scans.length > 0 ? scans[0].content : '';
+    }
 
     if (exportFormat === "csv") {
       let header: string;
       let rows: string[];
       
-      const data = generateExportData(exportType, "csv") as string[];
+      const data = generateExportData(exportType, "csv", sourceData) as string[];
       
       if (exportType === "serial") {
         header = "Serial";
@@ -195,7 +209,7 @@ const SavedData = () => {
       const csv = [header, ...rows].join("\n");
       blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     } else {
-      const data = generateExportData(exportType, "xlsx") as any[];
+      const data = generateExportData(exportType, "xlsx", sourceData) as any[];
       
       const ws = XLSX.utils.json_to_sheet(data);
       const colCount = Object.keys(data[0] || {}).length;
@@ -211,6 +225,26 @@ const SavedData = () => {
     // Trigger share dialog
     await shareFile(blob, fileName);
     setExportDialogOpen(false);
+  };
+
+  const shareExport = async (item: SavedExport) => {
+    try {
+      let blob: Blob;
+      if (item.type === "csv") {
+        blob = new Blob([item.data], { type: "text/csv;charset=utf-8;" });
+      } else {
+        // base64 to Blob
+        const byteChars = atob(item.data);
+        const byteNumbers = new Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+        const byteArray = new Uint8Array(byteNumbers);
+        blob = new Blob([byteArray], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      }
+      
+      await shareFile(blob, item.name);
+    } catch (error) {
+      console.error('Sharing failed:', error);
+    }
   };
 
   const downloadExport = (item: SavedExport) => {
@@ -359,6 +393,9 @@ const SavedData = () => {
                       <Button variant="outline" size="sm" onClick={() => openExportDialog(item)}>
                         <Share className="mr-2 h-4 w-4" />
                         Export
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => shareExport(item)} aria-label="Share this export">
+                        <Share className="h-4 w-4" />
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
