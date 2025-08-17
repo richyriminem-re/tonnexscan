@@ -110,23 +110,27 @@ const SavedData = () => {
 
   const shareFile = async (blob: Blob, fileName: string) => {
     try {
-      if (navigator.share && navigator.canShare) {
-        const file = new File([blob], fileName, { type: blob.type });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: "Tonnex Scan Export",
-            text: `Sharing scan data: ${fileName}`
-          });
-          return;
-        }
-      }
+      // Convert blob to base64 for Capacitor Share
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Remove data URL prefix to get pure base64
+          const base64 = result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      const base64Data = await base64Promise;
       
-      // Fallback: try Capacitor Share plugin
+      // Use Capacitor Share plugin for mobile sharing
       await CapShare.share({
         title: "Tonnex Scan Export",
         text: `Sharing scan data: ${fileName}`,
-        url: URL.createObjectURL(blob)
+        url: `data:${blob.type};base64,${base64Data}`,
+        dialogTitle: "Share your scan data"
       });
     } catch (error) {
       console.error('Sharing failed:', error);
