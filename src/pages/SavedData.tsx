@@ -5,9 +5,14 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Download, Calendar, Hash, FileSpreadsheet, Search, SortAsc, SortDesc, FileType, Trash2, Database, Smartphone, Shield } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { ArrowLeft, FileUp, Calendar, Hash, FileSpreadsheet, Search, SortAsc, SortDesc, FileType, Trash2, Database, Smartphone, Shield, FileText } from "lucide-react";
 import { useDeviceScans } from "@/hooks/useDeviceScans";
 import { Badge } from "@/components/ui/badge";
+import { toast as sonnerToast } from "@/components/ui/sonner";
+import * as XLSX from "xlsx";
 
 interface SavedExport {
   id: string;
@@ -22,16 +27,28 @@ interface SavedExport {
 const STORAGE_KEY = "tonnex_exports";
 
 const SavedData = () => {
+  const { scans, loading, deleteScan } = useDeviceScans();
   const [exports, setExports] = useState<SavedExport[]>([]);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "csv" | "xlsx">("all");
   const [sortBy, setSortBy] = useState<"date" | "name" | "count" | "type">("date");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [selectedScanId, setSelectedScanId] = useState<string>("");
+  const [fileName, setFileName] = useState("");
+  const [fileType, setFileType] = useState<"csv" | "xlsx">("xlsx");
+  const [exportType, setExportType] = useState<"both" | "serial" | "iuc">("both");
+
+  // Toast adapter
+  const notify = useCallback((opts: { title: string; description?: string; variant?: "destructive" | "default" }) => {
+    const fn: any = opts.variant === "destructive" ? (sonnerToast as any).error : sonnerToast;
+    if (opts.description) fn(opts.title, { description: opts.description }); else fn(opts.title);
+  }, []);
 
   // SEO
   useEffect(() => {
     document.title = "Saved Scans | Tonnex BarScan";
-    const desc = "Browse, search, and download your saved scan exports";
+    const desc = "View and export your saved barcode scans";
     let meta = document.querySelector('meta[name="description"]');
     if (!meta) {
       meta = document.createElement("meta");
@@ -98,34 +115,126 @@ const SavedData = () => {
     }).format(date);
   };
 
-  const downloadExport = (item: SavedExport) => {
-    if (item.type === "csv") {
-      const blob = new Blob([item.data], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = item.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } else {
-      // base64 to Blob
-      const byteChars = atob(item.data);
-      const byteNumbers = new Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = item.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
+  const openExportDialog = (scanId: string) => {
+    setSelectedScanId(scanId);
+    
+    // Generate filename with current date and time
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-'); // HH-MM-SS
+    const suggested = `Tonnex_Scan_${dateStr}_${timeStr}`;
+    
+    setFileName(suggested);
+    setFileType("xlsx");
+    setExportType("both");
+    setExportOpen(true);
   };
+
+  const performExport = useCallback(() => {
+    const selectedScan = scans.find(s => s.id === selectedScanId);
+    if (!selectedScan) {
+      notify({ title: "Error", description: "Scan not found", variant: "destructive" });
+      return;
+    }
+
+    // Parse the scan content to extract serial and IUC
+    const [serial, iuc] = selectedScan.content.split(',').map(s => s.trim());
+    if (!serial || !iuc) {
+      notify({ title: "Error", description: "Invalid scan data format", variant: "destructive" });
+      return;
+    }
+
+    const safeName = (fileName || `Tonnex_Scan_${Date.now()}`).replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const createdAt = new Date().toISOString();
+    const id = Date.now().toString();
+
+    if (fileType === "csv") {
+      let header: string;
+      let row: string;
+      
+      if (exportType === "serial") {
+        header = "Serial";
+        row = serial;
+      } else if (exportType === "iuc") {
+        header = "IUC";
+        row = iuc;
+      } else {
+        header = "Serial,IUC";
+        row = `${serial},${iuc}`;
+      }
+      
+      const csv = [header, row].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeName}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Save export snapshot to localStorage
+      const savedEntry: SavedExport = {
+        id,
+        name: `${safeName}.csv`,
+        type: "csv",
+        exportType,
+        createdAt,
+        rowCount: 1,
+        data: csv,
+      };
+      try {
+        const existing = JSON.parse(localStorage.getItem("tonnex_exports") || "[]");
+        const next = [savedEntry, ...existing];
+        localStorage.setItem("tonnex_exports", JSON.stringify(next));
+        window.dispatchEvent(new Event("tonnex:exports-updated"));
+      } catch {}
+    } else {
+      let data: any[];
+      
+      if (exportType === "serial") {
+        data = [{ Serial: serial }];
+      } else if (exportType === "iuc") {
+        data = [{ IUC: iuc }];
+      } else {
+        data = [{ Serial: serial, IUC: iuc }];
+      }
+      
+      const ws = XLSX.utils.json_to_sheet(data);
+      
+      // Set column widths to 13 units for all columns
+      const colCount = Object.keys(data[0] || {}).length;
+      ws['!cols'] = Array(colCount).fill({ wch: 13 });
+      
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Scans");
+
+      // Download file
+      XLSX.writeFile(wb, `${safeName}.xlsx`);
+
+      // Also save base64 snapshot to localStorage
+      try {
+        const base64 = XLSX.write(wb, { bookType: "xlsx", type: "base64" });
+        const savedEntry: SavedExport = {
+          id,
+          name: `${safeName}.xlsx`,
+          type: "xlsx",
+          exportType,
+          createdAt,
+          rowCount: 1,
+          data: base64,
+        };
+        const existing = JSON.parse(localStorage.getItem("tonnex_exports") || "[]");
+        const next = [savedEntry, ...existing];
+        localStorage.setItem("tonnex_exports", JSON.stringify(next));
+        window.dispatchEvent(new Event("tonnex:exports-updated"));
+      } catch {}
+    }
+
+    notify({ title: "Exported", description: `Scan exported as ${safeName}.${fileType}` });
+    setExportOpen(false);
+  }, [selectedScanId, scans, fileName, fileType, exportType, notify]);
 
   const removeExport = (id: string) => {
     try {
@@ -150,18 +259,26 @@ const SavedData = () => {
             <div className="p-1.5 bg-gradient-primary rounded-xl">
               <FileSpreadsheet className="h-5 w-5 text-white" />
             </div>
-            <h1 className="text-xl font-semibold whitespace-nowrap">Exported Files</h1>
+            <h1 className="text-xl font-semibold whitespace-nowrap">Saved Scans</h1>
           </div>
         </div>
       </header>
 
       <main className="w-full px-4 sm:px-6 py-6 max-w-full md:max-w-5xl mx-auto">
-        {exports.length === 0 ? (
+        {loading ? (
+          <Card className="p-12 text-center">
+            <div className="text-muted-foreground">
+              <FileSpreadsheet className="h-16 w-16 mx-auto mb-4 opacity-50 animate-pulse" />
+              <h3 className="text-xl font-semibold mb-2">Loading...</h3>
+              <p className="text-sm">Loading your saved scans...</p>
+            </div>
+          </Card>
+        ) : scans.length === 0 ? (
           <Card className="p-12 text-center">
             <div className="text-muted-foreground">
               <FileSpreadsheet className="h-16 w-16 mx-auto mb-4 opacity-50" />
-              <h3 className="text-xl font-semibold mb-2">No exported files</h3>
-              <p className="text-sm mb-6">Export your scan data to see files saved here.</p>
+              <h3 className="text-xl font-semibold mb-2">No saved scans</h3>
+              <p className="text-sm mb-6">Scan some barcodes to see your data here.</p>
               <Button asChild>
                 <Link to="/scanner">Go to Scanner</Link>
               </Button>
@@ -169,112 +286,175 @@ const SavedData = () => {
           </Card>
         ) : (
           <div className="space-y-4">
-            {/* Controls */}
-            <Card className="p-4">
-              <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-                <div className="flex-1 flex items-center gap-2">
-                  <div className="relative w-full md:max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search by file name..."
-                      className="pl-9"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Select value={typeFilter} onValueChange={(v: any) => setTypeFilter(v)}>
-                    <SelectTrigger className="w-[120px]">
-                      <SelectValue placeholder="Type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="csv">CSV</SelectItem>
-                      <SelectItem value="xlsx">Excel</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Sort by" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="date">Date</SelectItem>
-                      <SelectItem value="name">Name</SelectItem>
-                      <SelectItem value="count">Rows</SelectItem>
-                      <SelectItem value="type">Type</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Button variant="outline" size="icon" onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}>
-                    {sortDir === "asc" ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-            </Card>
-
-            {/* Export Files */}
+            {/* Saved Scans */}
             <div className="space-y-3">
               <h4 className="font-semibold text-sm text-muted-foreground flex items-center gap-2">
-                <FileSpreadsheet className="h-4 w-4" />
-                Export Files ({filteredExports.length})
+                <Database className="h-4 w-4" />
+                Saved Scans ({scans.length})
               </h4>
-              {filteredExports.map((item) => (
-                <Card key={item.id} className="p-4 md:p-5 hover:shadow-sm transition">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold truncate">{item.name}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {item.type.toUpperCase()} • {item.exportType}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4" />
-                          <span>{formatDate(item.createdAt)}</span>
+              {scans.map((scan) => {
+                const [serial, iuc] = scan.content.split(',').map(s => s.trim());
+                const scanDate = new Date(scan.timestamp);
+                
+                return (
+                  <Card key={scan.id} className="p-4 md:p-5 hover:shadow-sm transition">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground font-medium">Serial:</span>
+                            <span className="font-mono text-sm">{serial || 'N/A'}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground font-medium">IUC:</span>
+                            <span className="font-mono text-sm">{iuc || 'N/A'}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Hash className="h-4 w-4" />
-                          <span>{item.rowCount} rows</span>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            <span>{scanDate.toLocaleDateString()} {scanDate.toLocaleTimeString()}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Smartphone className="h-4 w-4" />
+                            <span className="truncate">{scan.deviceId.slice(-8)}</span>
+                          </div>
                         </div>
+                        {scan.notes && (
+                          <p className="text-sm text-muted-foreground mt-1">{scan.notes}</p>
+                        )}
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => downloadExport(item)}>
-                        <Download className="mr-2 h-4 w-4" />
-                        Download
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label="Delete saved export">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Export</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete "{item.name}"? This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => removeExport(item.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => openExportDialog(scan.id)}>
+                          <FileUp className="mr-2 h-4 w-4" />
+                          Export
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Delete saved scan">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Scan</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this scan? This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => deleteScan(scan.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </div>
-                  </div>
-                </Card>
-              ))}
+                  </Card>
+                );
+              })}
             </div>
           </div>
         )}
+
+        {/* Export Dialog */}
+        <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-lg">
+                <FileUp className="h-4 w-4 text-primary" />
+                Export Scan Data
+              </DialogTitle>
+              <DialogDescription className="text-sm">
+                Configure export settings and download the selected scan.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-3">
+              {/* Export Type Section */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1">
+                  <FileSpreadsheet className="h-3 w-3 text-primary" />
+                  What to export
+                </Label>
+                <RadioGroup value={exportType} onValueChange={(value: "both" | "serial" | "iuc") => setExportType(value)} className="space-y-1">
+                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
+                    <RadioGroupItem value="both" id="both" className="h-3 w-3" />
+                    <Label htmlFor="both" className="flex-1 cursor-pointer text-sm">
+                      Serial & IUC Numbers
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
+                    <RadioGroupItem value="serial" id="serial" className="h-3 w-3" />
+                    <Label htmlFor="serial" className="flex-1 cursor-pointer text-sm">
+                      Serial Numbers Only
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
+                    <RadioGroupItem value="iuc" id="iuc" className="h-3 w-3" />
+                    <Label htmlFor="iuc" className="flex-1 cursor-pointer text-sm">
+                      IUC Numbers Only
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {/* File Format Section */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1">
+                  <FileText className="h-3 w-3 text-primary" />
+                  File format
+                </Label>
+                <RadioGroup value={fileType} onValueChange={(value: "csv" | "xlsx") => setFileType(value)} className="grid grid-cols-2 gap-2">
+                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
+                    <RadioGroupItem value="xlsx" id="xlsx" className="h-3 w-3" />
+                    <Label htmlFor="xlsx" className="cursor-pointer text-sm">Excel</Label>
+                  </div>
+                  <div className="flex items-center space-x-2 rounded border p-2 hover:bg-muted/50">
+                    <RadioGroupItem value="csv" id="csv" className="h-3 w-3" />
+                    <Label htmlFor="csv" className="cursor-pointer text-sm">CSV</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {/* File Name Section */}
+              <div className="space-y-2">
+                <Label htmlFor="filename" className="text-sm font-medium">File name</Label>
+                <Input 
+                  id="filename" 
+                  value={fileName} 
+                  onChange={(e) => setFileName(e.target.value)} 
+                  placeholder="Enter file name" 
+                  className="h-8"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Saved as: <span className="font-mono">{(fileName || "Tonnex_Scan").replace(/[^a-zA-Z0-9_\-]/g, "_")}.{fileType}</span>
+                </p>
+              </div>
+
+              {/* Summary */}
+              <div className="bg-muted/50 rounded p-2">
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  <div>• 1 scan • {fileType.toUpperCase()} format</div>
+                  <div>• {exportType === "both" ? "Serial & IUC" : exportType === "serial" ? "Serial only" : "IUC only"}</div>
+                </div>
+              </div>
+            </div>
+            
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setExportOpen(false)} className="flex-1 h-8">
+                Cancel
+              </Button>
+              <Button onClick={performExport} className="flex-1 h-8">
+                <FileUp className="mr-1 h-3 w-3" /> 
+                Export
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );
