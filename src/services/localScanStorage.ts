@@ -1,6 +1,5 @@
 import { Preferences } from '@capacitor/preferences';
 import { DeviceIdService } from './deviceIdService';
-import { CompressionService } from './compressionService';
 
 export interface ScanRecord {
   id: string;
@@ -35,11 +34,10 @@ export class LocalScanStorage {
       // Add new scan
       const updatedScans = [scanRecord, ...existingScans];
       
-      // Store back to secure storage with compression
-      const compressedData = CompressionService.compressScans(updatedScans);
+      // Store back to secure storage
       await Preferences.set({
         key: SCANS_STORAGE_KEY,
-        value: compressedData
+        value: JSON.stringify(updatedScans)
       });
 
       console.log('Scan saved:', scanRecord);
@@ -62,7 +60,7 @@ export class LocalScanStorage {
         return [];
       }
 
-      const allScans: ScanRecord[] = CompressionService.decompressScans(value);
+      const allScans: ScanRecord[] = JSON.parse(value);
       
       // Filter scans for current device only
       return allScans.filter(scan => scan.deviceId === deviceId);
@@ -83,13 +81,12 @@ export class LocalScanStorage {
         return;
       }
 
-      const allScans: ScanRecord[] = CompressionService.decompressScans(value);
+      const allScans: ScanRecord[] = JSON.parse(value);
       const updatedScans = allScans.filter(scan => scan.id !== scanId);
       
-      const compressedData = CompressionService.compressScans(updatedScans);
       await Preferences.set({
         key: SCANS_STORAGE_KEY,
-        value: compressedData
+        value: JSON.stringify(updatedScans)
       });
 
       console.log('Scan deleted:', scanId);
@@ -110,15 +107,14 @@ export class LocalScanStorage {
         return;
       }
 
-      const allScans: ScanRecord[] = CompressionService.decompressScans(value);
+      const allScans: ScanRecord[] = JSON.parse(value);
       const updatedScans = allScans.map(scan => 
         scan.id === scanId ? { ...scan, notes } : scan
       );
       
-      const compressedData = CompressionService.compressScans(updatedScans);
       await Preferences.set({
         key: SCANS_STORAGE_KEY,
-        value: compressedData
+        value: JSON.stringify(updatedScans)
       });
 
       console.log('Scan notes updated:', scanId);
@@ -140,14 +136,13 @@ export class LocalScanStorage {
         return;
       }
 
-      const allScans: ScanRecord[] = CompressionService.decompressScans(value);
+      const allScans: ScanRecord[] = JSON.parse(value);
       // Keep scans from other devices, remove only current device scans
       const otherDeviceScans = allScans.filter(scan => scan.deviceId !== deviceId);
       
-      const compressedData = CompressionService.compressScans(otherDeviceScans);
       await Preferences.set({
         key: SCANS_STORAGE_KEY,
-        value: compressedData
+        value: JSON.stringify(otherDeviceScans)
       });
 
       console.log('All scans cleared for device:', deviceId);

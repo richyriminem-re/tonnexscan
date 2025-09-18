@@ -29,11 +29,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import * as XLSX from "xlsx";
 import { BarcodeScanner } from "@/components/scanner/BarcodeScanner";
-import { OfflineIndicator } from "@/components/ui/offline-indicator";
 import { LocalScanStorage, ScanRecord } from "@/services/localScanStorage";
 import { DeviceIdService } from "@/services/deviceIdService";
-import { HapticService } from "@/services/hapticService";
-import { ScanStatistics } from "@/components/performance/ScanStatistics";
 
 interface ScanResult {
   id: string;
@@ -81,7 +78,6 @@ const Scanner = () => {
   const [exportType, setExportType] = useState<"both" | "serial" | "iuc">("serial");
   const [lastBatchCount, setLastBatchCount] = useState(0);
   const [lastBatchId, setLastBatchId] = useState<number | null>(null);
-  const [sessionStartTime] = useState(Date.now());
 
   // Touch helpers for gestures
   const touchStartX = useRef<number | null>(null);
@@ -117,8 +113,8 @@ const handleDetected = useCallback((text: string) => {
     return next;
   });
 
-  // Provide haptic feedback
-  HapticService.scanSuccess();
+  // Provide feedback
+  try { navigator.vibrate?.(30); } catch {}
   const lineCount = raw.split(/\n+/).filter(Boolean).length;
   notify({
     title: "Scan Captured",
@@ -135,7 +131,7 @@ const handleDetected = useCallback((text: string) => {
         setShowDelay(false);
         return 0;
       }
-      return prev + 6.67; // 100% in 1.5 seconds
+      return prev + 2.5; // 100% in 4 seconds
     });
   }, 100);
 }, [showDelay, notify]);
@@ -222,7 +218,7 @@ const addParsedToTable = useCallback(async () => {
     setLastBatchCount(added);
     
     setRawText("");
-    HapticService.batchComplete();
+    try { navigator.vibrate?.(50); } catch {}
     
     notify({ title: "Added to table", description: `${added} new scans saved securely` });
   } catch (error) {
@@ -284,7 +280,7 @@ const clearRaw = useCallback(() => setRawText(""), []);
     setLastBatchId(null);
 
     // Haptic feedback
-    HapticService.notification();
+    try { navigator.vibrate?.(50); } catch {}
 
     notify({
       title: "Last batch undone",
@@ -302,7 +298,7 @@ const clearRaw = useCallback(() => setRawText(""), []);
       setLastBatchId(null);
       
       // Haptic feedback
-      HapticService.batchComplete();
+      try { navigator.vibrate?.(100); } catch {}
       
       notify({
         title: "All results cleared",
@@ -436,7 +432,6 @@ const performExport = useCallback(() => {
 
   return (
     <div className="min-h-screen bg-background fade-in">
-      <OfflineIndicator />
       {/* Header */}
       <header className="bg-card border-b shadow-sm">
         <div className="px-4 py-4 relative flex items-center">
@@ -461,13 +456,7 @@ const performExport = useCallback(() => {
     <div className="text-center">
       {/* Camera Preview */}
       <div className="relative bg-muted rounded-xl h-[44vh] md:h-64 mb-4 md:mb-6 overflow-hidden">
-        <BarcodeScanner 
-          active={!showDelay && isScanning} 
-          onResult={handleDetected}
-          scanDelay={50}
-          enableCache={true}
-          facingMode="environment"
-        />
+        <BarcodeScanner active={!showDelay && isScanning} onResult={handleDetected} />
 
         {/* QR Scanner Animation Overlay */}
         {!showDelay && isScanning && (
@@ -493,8 +482,7 @@ const performExport = useCallback(() => {
 
         {/* Instructional hint */}
         <div className="absolute inset-x-0 bottom-4 text-center text-muted-foreground pointer-events-none">
-          <p className="text-sm font-medium">Point camera at barcode to scan</p>
-          <p className="text-xs mt-1">High-speed scanning enabled</p>
+          <p className="text-sm">Point camera at barcode to scan</p>
         </div>
       </div>
 
