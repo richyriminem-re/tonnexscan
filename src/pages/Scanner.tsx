@@ -7,22 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { toast as sonnerToast } from "@/components/ui/sonner";
-import { 
-  ArrowLeft, 
-  Camera, 
-  Plus, 
-  Trash2, 
-  Download,
-  SkipForward,
-  Check,
-  ScanLine,
-  X,
-  RotateCcw,
-  AlertTriangle,
-  QrCode,
-  FileSpreadsheet,
-  FileText
-} from "lucide-react";
+import { ArrowLeft, Camera, Plus, Trash2, Download, SkipForward, Check, ScanLine, X, RotateCcw, AlertTriangle, QrCode, FileSpreadsheet, FileText } from "lucide-react";
 import logoMark from "@/assets/logo-mark.png";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,7 +16,6 @@ import * as XLSX from "xlsx";
 import { BarcodeScanner } from "@/components/scanner/BarcodeScanner";
 import { LocalScanStorage, ScanRecord } from "@/services/localScanStorage";
 import { DeviceIdService } from "@/services/deviceIdService";
-
 interface ScanResult {
   id: string;
   serial: string;
@@ -42,7 +26,6 @@ interface ScanResult {
   deviceId?: string;
   notes?: string;
 }
-
 interface SavedExport {
   id: string;
   name: string;
@@ -52,14 +35,18 @@ interface SavedExport {
   rowCount: number;
   data: string; // csv text or base64 for xlsx
 }
-
 const Scanner = () => {
   // Toast adapter (use Sonner)
-  const notify = useCallback((opts: { title: string; description?: string; variant?: "destructive" | "default" }) => {
+  const notify = useCallback((opts: {
+    title: string;
+    description?: string;
+    variant?: "destructive" | "default";
+  }) => {
     const fn: any = opts.variant === "destructive" ? (sonnerToast as any).error : sonnerToast;
-    if (opts.description) fn(opts.title, { description: opts.description }); else fn(opts.title);
+    if (opts.description) fn(opts.title, {
+      description: opts.description
+    });else fn(opts.title);
   }, []);
-
   const [scans, setScans] = useState<ScanResult[]>([]);
   const [progress, setProgress] = useState(0);
   const [showDelay, setShowDelay] = useState(false);
@@ -100,174 +87,183 @@ const Scanner = () => {
     setRawText("");
   }, []);
 
-// Handle camera results (capture for review, don't auto-add)
-const handleDetected = useCallback((text: string) => {
-  if (showDelay) return;
+  // Handle camera results (capture for review, don't auto-add)
+  const handleDetected = useCallback((text: string) => {
+    if (showDelay) return;
+    const raw = text.trim();
+    if (!raw) return;
 
-  const raw = text.trim();
-  if (!raw) return;
-
-  // Append to rawText for review (dedupe consecutive identical scans)
-  setRawText((prev) => {
-    const next = prev ? `${prev}\n${raw}` : raw;
-    return next;
-  });
-
-  // Provide feedback
-  try { navigator.vibrate?.(30); } catch {}
-  const lineCount = raw.split(/\n+/).filter(Boolean).length;
-  notify({
-    title: "Scan Captured",
-    description: `${lineCount} line${lineCount > 1 ? "s" : ""} added to review`,
-  });
-
-  // Delay 4 seconds before next scan
-  setShowDelay(true);
-  setProgress(0);
-  const progressInterval = setInterval(() => {
-    setProgress((prev) => {
-      if (prev >= 100) {
-        clearInterval(progressInterval);
-        setShowDelay(false);
-        return 0;
-      }
-      return prev + 2.5; // 100% in 4 seconds
+    // Append to rawText for review (dedupe consecutive identical scans)
+    setRawText(prev => {
+      const next = prev ? `${prev}\n${raw}` : raw;
+      return next;
     });
-  }, 100);
-}, [showDelay, notify]);
 
+    // Provide feedback
+    try {
+      navigator.vibrate?.(30);
+    } catch {}
+    const lineCount = raw.split(/\n+/).filter(Boolean).length;
+    notify({
+      title: "Scan Captured",
+      description: `${lineCount} line${lineCount > 1 ? "s" : ""} added to review`
+    });
+
+    // Delay 4 seconds before next scan
+    setShowDelay(true);
+    setProgress(0);
+    const progressInterval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(progressInterval);
+          setShowDelay(false);
+          return 0;
+        }
+        return prev + 2.5; // 100% in 4 seconds
+      });
+    }, 100);
+  }, [showDelay, notify]);
   const skipDelay = useCallback(() => {
     setShowDelay(false);
     setProgress(0);
   }, []);
 
-
-// Parsing helpers
-const parseRawToEntries = useCallback(() => {
-  const lines = rawText
-    .split(/\n+/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const valid: { serial: string; iuc: string }[] = [];
-  let invalid = 0;
-
-  for (const line of lines) {
-    const [serialRaw, iucRaw] = line.split(/[\,\s]+/);
-    const serial = (serialRaw || "").trim();
-    const iuc = (iucRaw || "").trim();
-    if (SERIAL_REGEX.test(serial) && IUC_REGEX.test(iuc)) {
-      valid.push({ serial, iuc });
-    } else {
-      invalid++;
-    }
-  }
-
-  return { valid, invalid, total: lines.length };
-}, [rawText]);
-
-const addParsedToTable = useCallback(async () => {
-  const { valid, invalid, total } = parseRawToEntries();
-  if (valid.length === 0) {
-    notify({ title: "No valid rows", description: "Please rescan.", variant: "destructive" });
-    return;
-  }
-
-  let added = 0;
-  let skipped = 0;
-  const now = Date.now();
-  const batchId = now; // use timestamp as batch identifier
-  const newEntries: ScanResult[] = [];
-  
-  try {
-    // Check for duplicates and save each valid scan
-    for (const [idx, v] of valid.entries()) {
-      const isDuplicate = scans.some((s) => s.serial === v.serial);
-      if (isDuplicate) {
-        skipped++;
+  // Parsing helpers
+  const parseRawToEntries = useCallback(() => {
+    const lines = rawText.split(/\n+/).map(l => l.trim()).filter(Boolean);
+    const valid: {
+      serial: string;
+      iuc: string;
+    }[] = [];
+    let invalid = 0;
+    for (const line of lines) {
+      const [serialRaw, iucRaw] = line.split(/[\,\s]+/);
+      const serial = (serialRaw || "").trim();
+      const iuc = (iucRaw || "").trim();
+      if (SERIAL_REGEX.test(serial) && IUC_REGEX.test(iuc)) {
+        valid.push({
+          serial,
+          iuc
+        });
       } else {
-        // Save to device-specific storage
-        const scanRecord = await LocalScanStorage.saveScan(
-          `${v.serial},${v.iuc}`, 
-          'barcode'
-        );
-        
-        const newEntry: ScanResult = {
-          id: scanRecord.id,
-          serial: v.serial,
-          iuc: v.iuc,
-          timestamp: new Date(scanRecord.timestamp),
-          isDuplicate: false,
-          batchId,
-          deviceId: scanRecord.deviceId,
-        };
-        newEntries.push(newEntry);
-        added++;
+        invalid++;
       }
     }
-    
-    // Update UI state
-    setScans((prev) => [...newEntries, ...prev]);
-    
-    if (newEntries.length > 0) {
-      setLastScanId(newEntries[0].id);
-      setLastBatchId(batchId);
+    return {
+      valid,
+      invalid,
+      total: lines.length
+    };
+  }, [rawText]);
+  const addParsedToTable = useCallback(async () => {
+    const {
+      valid,
+      invalid,
+      total
+    } = parseRawToEntries();
+    if (valid.length === 0) {
+      notify({
+        title: "No valid rows",
+        description: "Please rescan.",
+        variant: "destructive"
+      });
+      return;
     }
-    
-    // Track last added batch count for undo
-    setLastBatchCount(added);
-    
-    setRawText("");
-    try { navigator.vibrate?.(50); } catch {}
-    
-    notify({ title: "Added to table", description: `${added} new scans saved securely` });
-  } catch (error) {
-    console.error('Error saving scans:', error);
-    notify({ title: "Error", description: "Failed to save scans", variant: "destructive" });
-  }
-}, [parseRawToEntries, notify, scans]);
+    let added = 0;
+    let skipped = 0;
+    const now = Date.now();
+    const batchId = now; // use timestamp as batch identifier
+    const newEntries: ScanResult[] = [];
+    try {
+      // Check for duplicates and save each valid scan
+      for (const [idx, v] of valid.entries()) {
+        const isDuplicate = scans.some(s => s.serial === v.serial);
+        if (isDuplicate) {
+          skipped++;
+        } else {
+          // Save to device-specific storage
+          const scanRecord = await LocalScanStorage.saveScan(`${v.serial},${v.iuc}`, 'barcode');
+          const newEntry: ScanResult = {
+            id: scanRecord.id,
+            serial: v.serial,
+            iuc: v.iuc,
+            timestamp: new Date(scanRecord.timestamp),
+            isDuplicate: false,
+            batchId,
+            deviceId: scanRecord.deviceId
+          };
+          newEntries.push(newEntry);
+          added++;
+        }
+      }
 
-const clearRaw = useCallback(() => setRawText(""), []);
+      // Update UI state
+      setScans(prev => [...newEntries, ...prev]);
+      if (newEntries.length > 0) {
+        setLastScanId(newEntries[0].id);
+        setLastBatchId(batchId);
+      }
 
+      // Track last added batch count for undo
+      setLastBatchCount(added);
+      setRawText("");
+      try {
+        navigator.vibrate?.(50);
+      } catch {}
+      notify({
+        title: "Added to table",
+        description: `${added} new scans saved securely`
+      });
+    } catch (error) {
+      console.error('Error saving scans:', error);
+      notify({
+        title: "Error",
+        description: "Failed to save scans",
+        variant: "destructive"
+      });
+    }
+  }, [parseRawToEntries, notify, scans]);
+  const clearRaw = useCallback(() => setRawText(""), []);
   const undoLastScan = useCallback(() => {
     if (scans.length === 0) return;
-
-    console.log('Undo debug:', { 
-      lastBatchId, 
-      lastBatchCount, 
+    console.log('Undo debug:', {
+      lastBatchId,
+      lastBatchCount,
       scansLength: scans.length,
-      firstFewScans: scans.slice(0, 3).map(s => ({ id: s.id, batchId: s.batchId }))
+      firstFewScans: scans.slice(0, 3).map(s => ({
+        id: s.id,
+        batchId: s.batchId
+      }))
     });
-
     let removedCount = 0;
-
     if (lastBatchId != null) {
-      setScans((prev) => {
-        const toRemove = prev.filter((s) => s.batchId === lastBatchId);
+      setScans(prev => {
+        const toRemove = prev.filter(s => s.batchId === lastBatchId);
         removedCount = toRemove.length;
-        const remaining = prev.filter((s) => s.batchId !== lastBatchId);
-        
-        console.log('Removing by batchId:', { 
-          lastBatchId, 
-          toRemoveCount: toRemove.length, 
-          remainingCount: remaining.length 
+        const remaining = prev.filter(s => s.batchId !== lastBatchId);
+        console.log('Removing by batchId:', {
+          lastBatchId,
+          toRemoveCount: toRemove.length,
+          remainingCount: remaining.length
         });
-        
+
         // Update lastScanId to the new most recent scan if any
         setLastScanId(remaining.length > 0 ? remaining[0].id : null);
-        
+
         // Find the next most recent batch ID from remaining scans
-        const nextBatch = remaining.find((s) => s.batchId != null);
+        const nextBatch = remaining.find(s => s.batchId != null);
         setLastBatchId(nextBatch?.batchId ?? null);
-        
         return remaining;
       });
     } else {
       // Fallback: remove the most recent scans (up to lastBatchCount)
       const removeCount = Math.min(lastBatchCount > 0 ? lastBatchCount : 1, scans.length);
       removedCount = removeCount;
-      console.log('Removing by count (fallback):', { removeCount, lastBatchCount });
-      setScans((prev) => {
+      console.log('Removing by count (fallback):', {
+        removeCount,
+        lastBatchCount
+      });
+      setScans(prev => {
         const newScans = prev.slice(removeCount);
         // Update lastScanId to the new most recent scan if any
         setLastScanId(newScans.length > 0 ? newScans[0].id : null);
@@ -280,14 +276,14 @@ const clearRaw = useCallback(() => setRawText(""), []);
     setLastBatchId(null);
 
     // Haptic feedback
-    try { navigator.vibrate?.(50); } catch {}
-
+    try {
+      navigator.vibrate?.(50);
+    } catch {}
     notify({
       title: "Last batch undone",
-      description: `Removed ${removedCount} scan${removedCount !== 1 ? 's' : ''}`,
+      description: `Removed ${removedCount} scan${removedCount !== 1 ? 's' : ''}`
     });
   }, [scans, lastBatchCount, lastBatchId, notify]);
-
   const clearAllResults = useCallback(async () => {
     try {
       await LocalScanStorage.clearAllScans();
@@ -296,10 +292,11 @@ const clearRaw = useCallback(() => setRawText(""), []);
       setLastAddedId(null);
       setLastBatchCount(0);
       setLastBatchId(null);
-      
+
       // Haptic feedback
-      try { navigator.vibrate?.(100); } catch {}
-      
+      try {
+        navigator.vibrate?.(100);
+      } catch {}
       notify({
         title: "All results cleared",
         description: "Device-specific scans cleared securely"
@@ -313,125 +310,132 @@ const clearRaw = useCallback(() => setRawText(""), []);
       });
     }
   }, [notify]);
-const exportData = useCallback(() => {
-  if (scans.length === 0) {
-    notify({ title: "No Data", description: "No scans to export.", variant: "destructive" });
-    return;
-  }
-  
-  // Generate filename with current date and time
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
-  const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-'); // HH-MM-SS
-  const suggested = `Tonnex_Scan_${dateStr}_${timeStr}`;
-  
-  setFileName((prev) => prev || suggested);
-  setFileType("xlsx");
-  setExportOpen(true);
-}, [scans, notify]);
-
-const performExport = useCallback(() => {
-  const safeName = (fileName || `Tonnex_Scan_${Date.now()}`).replace(/[^a-zA-Z0-9_\-]/g, "_");
-  const createdAt = new Date().toISOString();
-  const id = Date.now().toString();
-
-  if (fileType === "csv") {
-    let header: string;
-    let rows: string[];
-    
-    if (exportType === "serial") {
-      header = "Serial";
-      rows = scans.map((s) => s.serial);
-    } else if (exportType === "iuc") {
-      header = "IUC";
-      rows = scans.map((s) => s.iuc);
-    } else {
-      header = "Serial,IUC";
-      rows = scans.map((s) => `${s.serial},${s.iuc}`);
+  const exportData = useCallback(() => {
+    if (scans.length === 0) {
+      notify({
+        title: "No Data",
+        description: "No scans to export.",
+        variant: "destructive"
+      });
+      return;
     }
-    
-    const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${safeName}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 
-    // Save export snapshot to localStorage for Saved Scans page
-    const savedEntry: SavedExport = {
-      id,
-      name: `${safeName}.csv`,
-      type: "csv",
-      exportType,
-      createdAt,
-      rowCount: rows.length,
-      data: csv,
-    };
-    try {
-      const existing = JSON.parse(localStorage.getItem("tonnex_exports") || "[]");
-      const next = [savedEntry, ...existing];
-      localStorage.setItem("tonnex_exports", JSON.stringify(next));
-      window.dispatchEvent(new Event("tonnex:exports-updated"));
-    } catch {}
-  } else {
-    let data: any[];
-    
-    if (exportType === "serial") {
-      data = scans.map((s) => ({ Serial: s.serial }));
-    } else if (exportType === "iuc") {
-      data = scans.map((s) => ({ IUC: s.iuc }));
-    } else {
-      data = scans.map((s) => ({ 
-        Serial: s.serial, 
-        IUC: s.iuc
-      }));
-    }
-    
-    const ws = XLSX.utils.json_to_sheet(data);
-    
-    // Set column widths to 13 units for all columns
-    const colCount = Object.keys(data[0] || {}).length;
-    ws['!cols'] = Array(colCount).fill({ wch: 13 });
-    
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Scans");
+    // Generate filename with current date and time
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-'); // HH-MM-SS
+    const suggested = `Tonnex_Scan_${dateStr}_${timeStr}`;
+    setFileName(prev => prev || suggested);
+    setFileType("xlsx");
+    setExportOpen(true);
+  }, [scans, notify]);
+  const performExport = useCallback(() => {
+    const safeName = (fileName || `Tonnex_Scan_${Date.now()}`).replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const createdAt = new Date().toISOString();
+    const id = Date.now().toString();
+    if (fileType === "csv") {
+      let header: string;
+      let rows: string[];
+      if (exportType === "serial") {
+        header = "Serial";
+        rows = scans.map(s => s.serial);
+      } else if (exportType === "iuc") {
+        header = "IUC";
+        rows = scans.map(s => s.iuc);
+      } else {
+        header = "Serial,IUC";
+        rows = scans.map(s => `${s.serial},${s.iuc}`);
+      }
+      const csv = [header, ...rows].join("\n");
+      const blob = new Blob([csv], {
+        type: "text/csv;charset=utf-8;"
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeName}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-    // Download file
-    XLSX.writeFile(wb, `${safeName}.xlsx`);
-
-    // Also save base64 snapshot to localStorage
-    try {
-      const base64 = XLSX.write(wb, { bookType: "xlsx", type: "base64" });
+      // Save export snapshot to localStorage for Saved Scans page
       const savedEntry: SavedExport = {
         id,
-        name: `${safeName}.xlsx`,
-        type: "xlsx",
+        name: `${safeName}.csv`,
+        type: "csv",
         exportType,
         createdAt,
-        rowCount: data.length,
-        data: base64,
+        rowCount: rows.length,
+        data: csv
       };
-      const existing = JSON.parse(localStorage.getItem("tonnex_exports") || "[]");
-      const next = [savedEntry, ...existing];
-      localStorage.setItem("tonnex_exports", JSON.stringify(next));
-      window.dispatchEvent(new Event("tonnex:exports-updated"));
-    } catch {}
-  }
+      try {
+        const existing = JSON.parse(localStorage.getItem("tonnex_exports") || "[]");
+        const next = [savedEntry, ...existing];
+        localStorage.setItem("tonnex_exports", JSON.stringify(next));
+        window.dispatchEvent(new Event("tonnex:exports-updated"));
+      } catch {}
+    } else {
+      let data: any[];
+      if (exportType === "serial") {
+        data = scans.map(s => ({
+          Serial: s.serial
+        }));
+      } else if (exportType === "iuc") {
+        data = scans.map(s => ({
+          IUC: s.iuc
+        }));
+      } else {
+        data = scans.map(s => ({
+          Serial: s.serial,
+          IUC: s.iuc
+        }));
+      }
+      const ws = XLSX.utils.json_to_sheet(data);
 
-  notify({ title: "Exported", description: `${scans.length} rows saved as ${safeName}.${fileType}` });
-  setExportOpen(false);
-  
-  // Clear scan results after successful export
-  setScans([]);
-  setLastAddedId(null);
-}, [fileName, fileType, exportType, scans, notify]);
+      // Set column widths to 13 units for all columns
+      const colCount = Object.keys(data[0] || {}).length;
+      ws['!cols'] = Array(colCount).fill({
+        wch: 13
+      });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Scans");
 
-  return (
-    <div className="min-h-screen bg-background fade-in">
+      // Download file
+      XLSX.writeFile(wb, `${safeName}.xlsx`);
+
+      // Also save base64 snapshot to localStorage
+      try {
+        const base64 = XLSX.write(wb, {
+          bookType: "xlsx",
+          type: "base64"
+        });
+        const savedEntry: SavedExport = {
+          id,
+          name: `${safeName}.xlsx`,
+          type: "xlsx",
+          exportType,
+          createdAt,
+          rowCount: data.length,
+          data: base64
+        };
+        const existing = JSON.parse(localStorage.getItem("tonnex_exports") || "[]");
+        const next = [savedEntry, ...existing];
+        localStorage.setItem("tonnex_exports", JSON.stringify(next));
+        window.dispatchEvent(new Event("tonnex:exports-updated"));
+      } catch {}
+    }
+    notify({
+      title: "Exported",
+      description: `${scans.length} rows saved as ${safeName}.${fileType}`
+    });
+    setExportOpen(false);
+
+    // Clear scan results after successful export
+    setScans([]);
+    setLastAddedId(null);
+  }, [fileName, fileType, exportType, scans, notify]);
+  return <div className="min-h-screen bg-background fade-in">
       {/* Header */}
       <header className="bg-card border-b shadow-sm">
         <div className="px-4 py-4 relative flex items-center">
@@ -450,7 +454,7 @@ const performExport = useCallback(() => {
         </div>
       </header>
 
-<main className="px-4 py-6 pb-28 max-w-full mx-auto">
+    <main className="px-4 py-6 pb-28 max-w-full mx-auto">
   {/* Scanner Section */}
   <Card className="p-4 md:p-6 mb-4 md:mb-6">
     <div className="text-center">
@@ -459,8 +463,7 @@ const performExport = useCallback(() => {
         <BarcodeScanner active={!showDelay && isScanning} onResult={handleDetected} />
 
         {/* QR Scanner Animation Overlay */}
-        {!showDelay && isScanning && (
-          <div className="scanner-overlay">
+        {!showDelay && isScanning && <div className="scanner-overlay">
             {/* Moving scan line */}
             <div className="scanner-line"></div>
             
@@ -477,8 +480,7 @@ const performExport = useCallback(() => {
             
             {/* Grid overlay */}
             <div className="scanner-grid"></div>
-          </div>
-        )}
+          </div>}
 
         {/* Instructional hint */}
         <div className="absolute inset-x-0 bottom-4 text-center text-muted-foreground pointer-events-none">
@@ -487,22 +489,16 @@ const performExport = useCallback(() => {
       </div>
 
       {/* Progress Bar */}
-      {showDelay && (
-        <div className="mb-2 md:mb-6">
+      {showDelay && <div className="mb-2 md:mb-6">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-muted-foreground">Next scan in...</p>
-            <Button 
-              onClick={skipDelay} 
-              variant="outline" 
-              size="sm"
-            >
+            <Button onClick={skipDelay} variant="outline" size="sm">
               <SkipForward className="mr-1 h-4 w-4" />
               Skip Delay
             </Button>
           </div>
           <Progress value={progress} className="h-2" data-animated="true" />
-        </div>
-      )}
+        </div>}
     </div>
   </Card>
 
@@ -514,12 +510,7 @@ const performExport = useCallback(() => {
         {parseRawToEntries().valid.length} records detected
       </span>
     </div>
-    <Textarea
-      value={rawText}
-      onChange={(e) => setRawText(e.target.value)}
-      placeholder="Scanned text will appear here... Each line: SERIAL,IUC"
-      className="min-h-[140px] font-mono"
-    />
+    <Textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Scanned text will appear here... Each line: SERIAL,IUC" className="min-h-[140px] font-mono" />
     <div className="flex gap-2 justify-end mt-3">
       <Button variant="outline" onClick={clearRaw} disabled={!rawText}>
         <X className="mr-2 h-4 w-4" /> Clear
@@ -538,29 +529,17 @@ const performExport = useCallback(() => {
               <span className="text-sm text-muted-foreground">{scans.length} scans</span>
             </div>
             
-            {scans.length === 0 ? (
-              <div className="text-center py-12">
+            {scans.length === 0 ? <div className="text-center py-12">
                 <div className="text-muted-foreground">
                   <Camera className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-medium mb-2">No scans yet</p>
                   <p className="text-sm">Start scanning to see results here.</p>
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {scans.map((scan) => (
-                  <div 
-                    key={scan.id}
-                    data-scan-id={scan.id}
-                    className={`relative p-3 rounded-lg border flex items-center transition-all duration-200 ${
-                      scan.isDuplicate ? 'bg-destructive/10 border-destructive/20' : 'bg-card hover:bg-muted/50 hover:shadow-md'
-                    } ${lastAddedId === scan.id && !scan.isDuplicate ? 'ring-2 ring-success/50 success-pulse' : ''}`}
-                  >
-                    {lastAddedId === scan.id && !scan.isDuplicate && (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-success text-success-foreground rounded-full p-1 shadow-md checkmark-pop">
+              </div> : <div className="space-y-2 max-h-96 overflow-y-auto">
+                {scans.map(scan => <div key={scan.id} data-scan-id={scan.id} className={`relative p-3 rounded-lg border flex items-center transition-all duration-200 ${scan.isDuplicate ? 'bg-destructive/10 border-destructive/20' : 'bg-card hover:bg-muted/50 hover:shadow-md'} ${lastAddedId === scan.id && !scan.isDuplicate ? 'ring-2 ring-success/50 success-pulse' : ''}`}>
+                    {lastAddedId === scan.id && !scan.isDuplicate && <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-success text-success-foreground rounded-full p-1 shadow-md checkmark-pop">
                         <Check className="h-3.5 w-3.5" />
-                      </div>
-                    )}
+                      </div>}
                     <div className="grid grid-cols-2 gap-4 flex-1 text-sm">
                       <div>
                         <span className="font-medium text-muted-foreground">Serial:</span>
@@ -571,32 +550,18 @@ const performExport = useCallback(() => {
                         <div className="font-mono">{scan.iuc}</div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  </div>)}
+              </div>}
             
             {/* Action Buttons */}
-            {scans.length > 0 && (
-              <div className="space-y-3 mt-6 px-1">
+            {scans.length > 0 && <div className="space-y-3 mt-6 px-1">
                 {/* First row: Undo Last and Clear Results side-by-side */}
                 <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    onClick={() => setUndoConfirmOpen(true)}
-                    variant="outline"
-                    size="sm"
-                    disabled={scans.length === 0}
-                    className="min-h-[44px] touch-manipulation hover:bg-secondary-hover transition-colors"
-                  >
+                  <Button onClick={() => setUndoConfirmOpen(true)} variant="outline" size="sm" disabled={scans.length === 0} className="min-h-[44px] touch-manipulation hover:bg-secondary-hover transition-colors">
                     <RotateCcw className="mr-2 h-4 w-4" />
                     Undo Last
                   </Button>
-                  <Button
-                    onClick={() => setClearConfirmOpen(true)}
-                    variant="destructive"
-                    size="sm"
-                    className="min-h-[44px] touch-manipulation bg-destructive hover:bg-destructive/90 text-destructive-foreground transition-colors"
-                  >
+                  <Button onClick={() => setClearConfirmOpen(true)} variant="destructive" size="sm" className="min-h-[44px] touch-manipulation bg-destructive hover:bg-destructive/90 text-destructive-foreground transition-colors">
                     <Trash2 className="mr-2 h-4 w-4" />
                     Clear Results
                   </Button>
@@ -604,24 +569,18 @@ const performExport = useCallback(() => {
                 
                 {/* Second row: Export button centered */}
                 <div className="flex justify-center">
-                  <Button
-                    onClick={exportData}
-                    size="sm"
-                    className="min-h-[44px] touch-manipulation bg-success hover:bg-success/90 text-success-foreground transition-colors px-8"
-                  >
+                  <Button onClick={exportData} size="sm" className="min-h-[44px] touch-manipulation bg-success hover:bg-success/90 text-success-foreground transition-colors px-8">
                     <Download className="mr-2 h-4 w-4" />
                     Export ({scans.length})
                   </Button>
                 </div>
-              </div>
-            )}
+              </div>}
           </Card>
 
           {/* Credits Section */}
           <div className="mt-6 text-center">
-            <p className="text-sm text-muted-foreground/70">
-              THIS APP WAS DESIGNED AND VISIONED BY RICHY OGIEMUDIA
-            </p>
+            <p className="text-sm text-muted-foreground/70">THIS APP WAS DESIGNED AND VISIONED BY RICHY OGIEMUDIA
+09057775190</p>
           </div>
         </div>
 
@@ -638,21 +597,13 @@ const performExport = useCallback(() => {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="flex gap-2">
-              <Button 
-                variant="ghost" 
-                onClick={() => setClearConfirmOpen(false)}
-                className="flex-1"
-              >
+              <Button variant="ghost" onClick={() => setClearConfirmOpen(false)} className="flex-1">
                 Cancel
               </Button>
-              <Button 
-                variant="destructive" 
-                onClick={() => {
-                  clearAllResults();
-                  setClearConfirmOpen(false);
-                }}
-                className="flex-1"
-              >
+              <Button variant="destructive" onClick={() => {
+              clearAllResults();
+              setClearConfirmOpen(false);
+            }} className="flex-1">
                 Yes, Clear
               </Button>
             </DialogFooter>
@@ -672,21 +623,13 @@ const performExport = useCallback(() => {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="flex gap-2">
-              <Button 
-                variant="ghost" 
-                onClick={() => setUndoConfirmOpen(false)}
-                className="flex-1"
-              >
+              <Button variant="ghost" onClick={() => setUndoConfirmOpen(false)} className="flex-1">
                 Cancel
               </Button>
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  undoLastScan();
-                  setUndoConfirmOpen(false);
-                }}
-                className="flex-1"
-              >
+              <Button variant="outline" onClick={() => {
+              undoLastScan();
+              setUndoConfirmOpen(false);
+            }} className="flex-1">
                 Yes, Undo
               </Button>
             </DialogFooter>
@@ -756,13 +699,7 @@ const performExport = useCallback(() => {
               {/* File Name Section */}
               <div className="space-y-2">
                 <Label htmlFor="filename" className="text-sm font-medium">File name</Label>
-                <Input 
-                  id="filename" 
-                  value={fileName} 
-                  onChange={(e) => setFileName(e.target.value)} 
-                  placeholder="Enter file name" 
-                  className="h-8"
-                />
+                <Input id="filename" value={fileName} onChange={e => setFileName(e.target.value)} placeholder="Enter file name" className="h-8" />
                 <p className="text-xs text-muted-foreground">
                   Saved as: <span className="font-mono">{(fileName || "Tonnex_Scan").replace(/[^a-zA-Z0-9_\-]/g, "_")}.{fileType}</span>
                 </p>
@@ -796,8 +733,6 @@ const performExport = useCallback(() => {
           </DialogContent>
         </Dialog>
       </main>
-    </div>
-  );
+    </div>;
 };
-
 export default Scanner;
