@@ -716,9 +716,8 @@ const Scanner = () => {
             
             {/* Credits Section */}
             <div className="mt-4 text-center">
-              <p className="text-xs text-muted-foreground/70">
-                THIS APP WAS DESIGNED AND VISIONED BY RICHY OGIEMUDIA
-              </p>
+              <p className="text-xs text-muted-foreground/70">THIS APP WAS DESIGNED AND VISIONED BY RICHY OGIEMUDIA
+09057775190</p>
             </div>
             
             <DialogFooter className="gap-2">
